@@ -1,14 +1,11 @@
-h #include <DueTimer.h>
+#include <DueTimer.h>
 #include <LiquidCrystal.h>
 #include <MIDIUSB.h>
 
 #define RESOLUTION 30 //Microsecond resolution for notes
 
-//Lcd. if you have no lcd remove all lcd commands.
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 byte lcdNumCols = 16;
-
-
 //First pin being used for floppies, and the last pin.  Used for looping over all pins.
 const byte FIRST_PIN = 22;
 const byte PIN_MAX = 53;
@@ -32,7 +29,6 @@ int noteToPeriod[127]=
 are used for control, so only even numbers need a value here.  3.5" Floppies have
 80 tracks, 5.25" have 50.  These should be doubled, because each tick is now
 half a position (use 158 and 98).
-Change this for your setup.
 */
 byte MAX_POSITION[] = {
   158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,0,0,0,0};
@@ -58,10 +54,9 @@ unsigned int currentPeriod[] = {
 //Setup pins (Even-odd pairs for step control and direction)
 void setup(){
   
-  //for performance precalculate the periods. should probably be done by the preprocessor...
-  for(int i=0;i<127;i++)
-    noteToPeriod[i]=noteToPeriod[i] / (2*RESOLUTION); 
-  
+  for(int i=0;i<127;i++){
+    noteToPeriod[i]=noteToPeriod[i] / (2*RESOLUTION); //for performance precalculate the periods. should probably be done by the preprocessor...
+  }
   
   lcd.begin(2, lcdNumCols);
     lcd.clear();
@@ -72,43 +67,39 @@ void setup(){
   
     Timer1.attachInterrupt(tick); // Attach the tick function
     Timer1.start(RESOLUTION); // Set up a timer at the defined resolution
-
-    //lcd init
+  
     lcd.clear();
     lcd.setCursor(0, 1);
     lcd.print("Starting up");
     lcd.setCursor(4, 0);
     lcd.print("Gigawipf");
-
-    //drive all heads forward for testing.
-    for (byte s=0;s<80;s++){ //assuming we have drives with 80 tracks.
+  
+    for (byte s=0;s<80;s++){ // For max drive's position
       for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-        digitalWrite(p+1,LOW); 
+        digitalWrite(p+1,LOW); // Go
         digitalWrite(p,HIGH);
         digitalWrite(p,LOW);   
       }
       delay(5);
     }
-    //prepare to reset...
     for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-      currentState[p-FIRST_PIN] = 158;
+      currentState[p-FIRST_PIN] = 158; // We're reset.
       digitalWrite(p+1,HIGH);
       pinState[p+1-FIRST_PIN] = HIGH;
     }
   delay(500);
-  resetAll(); //test reset function.
+  resetAll();
 
 }
 
 
 void loop(){
-  midiEventPacket_t rx = MidiUSB.read(); //read new midi packet
+  midiEventPacket_t rx = MidiUSB.read(); //read midi packet
   
   if (rx.header != 0) {   
     byte chan = (rx.byte1 & 0x0f)*2;
 
-    //note off for note off event, zero velocity and zero volume.
-    if(rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)){ 
+    if(rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)){ //note off
       currentPeriod[chan] = 0;
       currentState[chan+1] = 0;
       digitalWrite(chan+FIRST_PIN,LOW);
@@ -119,14 +110,13 @@ void loop(){
       currentState[chan+1] = rx.byte2;
       
     }else if(rx.header==0x0B){ //special
-      //all notes off message on first channel or reset.
       if(rx.byte1 == 0xB0 && (rx.byte2==0x78 || rx.byte2==0x7B)){
         resetAll();
       }      
     }else if(rx.header==0x0E){ //pitch Bend
       long pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
       if(pb!=0){
-        float pbMult = pow(2.0,pb / ((chan == 28) ? 4096.0 : 8192.0)); //channel 15 is a hdd for me and can go higher. change this.
+        float pbMult = pow(2.0,pb / ((chan == 28) ? 4096.0 : 8192.0)); //channel 15 is a hdd for me and can go higher.
         currentPeriod[chan] = noteToPeriod[currentState[chan+1]] / pbMult;
       }
       
@@ -141,7 +131,7 @@ Called by the timer inturrupt at the specified resolution.
 void tick()
 {
   /* 
-  If there is a period set, count the number of
+  If there is a period set for control pin 2, count the number of
   ticks that pass, and toggle the pin if the current period is reached.
   */
   for(int i=0;i<=30;i+=2){
@@ -163,7 +153,7 @@ void togglePin(byte pin, byte direction_pin) {
       pinState[direction_pin] = HIGH;
       digitalWrite(direction_pin+FIRST_PIN,HIGH);
     } 
-    else if (currentState[pin] == 0) {
+    else if (currentState[pin] <= 0) {
       pinState[direction_pin] = LOW;
       digitalWrite(direction_pin+FIRST_PIN,LOW);
     }
@@ -193,8 +183,7 @@ void resetAll(){
   }
   if(res==true) //we are already reset.
     return;
-
-  //lcd message before reset
+    
   lcd.clear();
   lcd.setCursor(2, 1);
   lcd.print("Resetting...");
@@ -203,7 +192,7 @@ void resetAll(){
   
   for (byte s=0;s<80;s++){ // For max drive's position
       for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-        if(currentState[p-FIRST_PIN] == 0) //Don't run the head into end stops
+        if(currentState[p-FIRST_PIN]<=0) //Don't run the head into end stops
           continue;
         digitalWrite(p+1,HIGH); // Go in reverse
         digitalWrite(p,HIGH);
@@ -218,8 +207,6 @@ void resetAll(){
     digitalWrite(p,LOW);
     pinState[p+1 - FIRST_PIN] = LOW;
   }
-  
-  //lcd message after reset and while playing.
   lcd.clear();
   lcd.setCursor(2, 1);
   lcd.print("Floppy Music");
