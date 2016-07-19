@@ -150,6 +150,10 @@ void togglePin(byte pin, byte direction_pin) {
       pinState[direction_pin] = HIGH;
       digitalWrite(direction_pin+PIN_MIN,HIGH);
     } 
+    else if (currentState[pin] <= 0) {
+      pinState[direction_pin] = LOW;
+      digitalWrite(direction_pin+FIRST_PIN,LOW);
+    }
     
     //Update currentState
     if (pinState[direction_pin] == HIGH) {
