@@ -2,7 +2,7 @@
 #include <LiquidCrystal.h>
 #include "MIDIUSB.h"
 
-#define RESOLUTION 20 //Microsecond resolution for notes
+#define RESOLUTION 30 //Microsecond resolution for notes
 
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 byte lcdNumCols = 16;
@@ -12,7 +12,7 @@ const byte PIN_MAX = 53;
 
 //Precalculated note times in microseconds.
 int noteToPeriod[127]=
-{122312 ,115447 ,108967 ,102851 ,97079 ,91630 ,86487 ,81633 ,77051 ,72727 ,68645 ,64792 ,
+{0 ,115447 ,108967 ,102851 ,97079 ,91630 ,86487 ,81633 ,77051 ,72727 ,68645 ,64792 ,
 61156 ,57723 ,54483 ,51425 ,48539 ,45815 ,43243 ,40816 ,38525 ,36363 ,34322 ,32396 ,
 30578 ,28861 ,27241 ,25712 ,24269 ,22907 ,21621 ,20408 ,19262 ,18181 ,17161 ,16198 ,
 15289 ,14430 ,13620 ,12856 ,12134 ,11453 ,10810 ,10204 ,9631 ,9090 ,8580 ,8099 ,
@@ -31,35 +31,24 @@ are used for control, so only even numbers need a value here.  3.5" Floppies hav
 half a position (use 158 and 98).
 */
 byte MAX_POSITION[] = {
-  158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0};
+  158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,0,0,0,0};
   
 //Array to track the current position of each floppy head.  (Only even indexes (i.e. 2,4,6...) are used)
-byte currentPosition[] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+//The second value between step pin is the current note number for pitch bends.
+byte currentState[] = {
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 /*Array to keep track of state of each pin.  Even indexes track the control-pins for toggle purposes.  Odd indexes
 track direction-pins.  LOW = forward, HIGH=reverse
 */
-int currentState[] = {
-  LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW
-};
+int pinState[] = {
+  LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW};
   
 //Current period assigned to each pin.  0 = off.  Each period is of the length specified by the RESOLUTION
 //variable above.  i.e. A period of 10 is (RESOLUTION x 10) microseconds long.
+//Second value on the "dir" pin is the current tick.
 unsigned int currentPeriod[] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-};
-
-//Only used for pitch bends now.
-byte currentNote[] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-};
-
-//Current tick
-unsigned int currentTick[] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
-};
-
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 
 //Setup pins (Even-odd pairs for step control and direction
@@ -74,8 +63,7 @@ void setup(){
   for(int i=22;i<=53;i++){
     pinMode(i, OUTPUT);
   }
-    pinMode(13, OUTPUT);// Pin 13 with led
-    Serial.begin(19200);
+    //Serial.begin(19200);
   
     Timer1.attachInterrupt(tick); // Attach the tick function
     Timer1.start(RESOLUTION); // Set up a timer at the defined resolution
@@ -90,15 +78,14 @@ void setup(){
       for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
         digitalWrite(p+1,LOW); // Go
         digitalWrite(p,HIGH);
-        digitalWrite(p,LOW);
-        
+        digitalWrite(p,LOW);   
       }
       delay(5);
     }
       for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-      currentPosition[p] = 158; // We're reset.
+      currentState[p-FIRST_PIN] = 158; // We're reset.
       digitalWrite(p+1,HIGH);
-      currentState[p+1] = HIGH;
+      pinState[p+1-FIRST_PIN] = HIGH;
     }
   delay(500);
   resetAll();
@@ -120,13 +107,13 @@ void loop(){
       if(rx.byte3 > 0)
            period = noteToPeriod[note];
       currentPeriod[chan] = period;
-      currentNote[chan] = note;
+      currentState[chan+1] = note;
       
     }else if(rx.header == 0x08 || rx.header == 0x0B){ //note off
       currentPeriod[chan] = 0;
-      currentNote[chan] = 0;
+      currentState[chan+1] = 0;
       digitalWrite(chan+FIRST_PIN,LOW);
-      currentState[chan]=LOW;
+      pinState[chan]=LOW;
       
     }else if(rx.byte1==0xB0){ //reset on first channel
       resetAll();
@@ -134,7 +121,7 @@ void loop(){
     }else if(rx.header==0x0E){ //pitch Bend
       long pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
       float pbMult = pow(2.0,pb / ((chan == 28) ? 2048.0 : 8192.0));
-      currentPeriod[chan] = noteToPeriod[currentNote[chan]] / pbMult;
+      currentPeriod[chan] = noteToPeriod[currentState[chan+1]] / pbMult;
       
     }
   }
@@ -152,10 +139,10 @@ void tick()
   */
   for(int i=0;i<=30;i+=2){
     if (currentPeriod[i]>0){
-      currentTick[i]++;
-      if (currentTick[i] >= currentPeriod[i]){
+      currentPeriod[i+1]++;
+      if (currentPeriod[i+1] >= currentPeriod[i]){
         togglePin(i,i+1);
-        currentTick[i]=0;
+        currentPeriod[i+1]=0;
       }
     }
   }
@@ -164,26 +151,27 @@ void tick()
 void togglePin(byte pin, byte direction_pin) {
   
   //Switch directions if end has been reached
-  if (currentPosition[pin] >= MAX_POSITION[pin]) {
-    currentState[direction_pin] = HIGH;
-    digitalWrite(direction_pin+FIRST_PIN,HIGH);
-  } 
-  else if (currentPosition[pin] <= 0) {
-    currentState[direction_pin] = LOW;
-    digitalWrite(direction_pin+FIRST_PIN,LOW);
+  if(MAX_POSITION[pin] > 0){
+    if (currentState[pin] >= MAX_POSITION[pin]) {
+      pinState[direction_pin] = HIGH;
+      digitalWrite(direction_pin+FIRST_PIN,HIGH);
+    } 
+    else if (currentState[pin] <= 0) {
+      pinState[direction_pin] = LOW;
+      digitalWrite(direction_pin+FIRST_PIN,LOW);
+    }
+    
+      //Update currentState
+    if (pinState[direction_pin] == HIGH){
+      currentState[pin]--;
+    } 
+    else {
+      currentState[pin]++;
+    }
   }
-  
-    //Update currentPosition
-  if (currentState[direction_pin] == HIGH){
-    currentPosition[pin]--;
-  } 
-  else {
-    currentPosition[pin]++;
-  }
-  
   //Pulse the control pin
-  digitalWrite(pin+FIRST_PIN,currentState[pin]);
-  currentState[pin] = ~currentState[pin];
+  digitalWrite(pin+FIRST_PIN,pinState[pin]);
+  pinState[pin] = ~pinState[pin];
 
 }
 
@@ -193,7 +181,7 @@ void resetAll(){
 
 for (byte s=0;s<80;s++){ // For max drive's position
     for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-      if(currentPosition[p]<=0) //Don't run the head into end stops
+      if(currentState[p-FIRST_PIN]<=0) //Don't run the head into end stops
         continue;
       digitalWrite(p+1,HIGH); // Go in reverse
       digitalWrite(p,HIGH);
@@ -203,9 +191,9 @@ for (byte s=0;s<80;s++){ // For max drive's position
   }
   
   for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-    currentPosition[p] = 0;
+    currentState[p-FIRST_PIN] = 0;
     digitalWrite(p+1,LOW);
-    currentState[p+1] = 0;
+    pinState[p+1 - FIRST_PIN] = LOW;
   }
   lcd.clear();
   lcd.setCursor(2, 1);
