@@ -1,6 +1,6 @@
 #include <DueTimer.h>
 #include <LiquidCrystal.h>
-#include "MIDIUSB.h"
+#include <MIDIUSB.h>
 
 #define RESOLUTION 30 //Microsecond resolution for notes
 
@@ -51,7 +51,7 @@ unsigned int currentPeriod[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 
-//Setup pins (Even-odd pairs for step control and direction
+//Setup pins (Even-odd pairs for step control and direction)
 void setup(){
   
   for(int i=0;i<127;i++){
@@ -82,7 +82,7 @@ void setup(){
       }
       delay(5);
     }
-      for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
+    for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
       currentState[p-FIRST_PIN] = 158; // We're reset.
       digitalWrite(p+1,HIGH);
       pinState[p+1-FIRST_PIN] = HIGH;
@@ -98,7 +98,6 @@ void loop(){
   
   if (rx.header != 0) {   
     byte chan = (rx.byte1 & 0x0f)*2;
-    byte note = rx.byte2;
 
     if(rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)){ //note off
       currentPeriod[chan] = 0;
@@ -107,20 +106,17 @@ void loop(){
       pinState[chan]=LOW;
       
     }else if(rx.header == 0x09){ //note on
-      unsigned int period = 0;
-      period = noteToPeriod[note];
-      currentPeriod[chan] = period;
-      currentState[chan+1] = note;
+      currentPeriod[chan] = noteToPeriod[rx.byte2]; //convert note number to period
+      currentState[chan+1] = rx.byte2;
       
     }else if(rx.header==0x0B){ //special
       if(rx.byte1 == 0xB0 && (rx.byte2==0x78 || rx.byte2==0x7B)){
         resetAll();
-      }
-      
+      }      
     }else if(rx.header==0x0E){ //pitch Bend
       long pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
       if(pb!=0){
-        float pbMult = pow(2.0,pb / ((chan == 28) ? 4096.0 : 8192.0));
+        float pbMult = pow(2.0,pb / ((chan == 28) ? 4096.0 : 8192.0)); //channel 15 is a hdd for me and can go higher.
         currentPeriod[chan] = noteToPeriod[currentState[chan+1]] / pbMult;
       }
       
@@ -150,7 +146,7 @@ void tick()
 }
 
 void togglePin(byte pin, byte direction_pin) {
-  
+ 
   //Switch directions if end has been reached
   if(MAX_POSITION[pin] > 0){
     if (currentState[pin] >= MAX_POSITION[pin]) {
@@ -179,14 +175,21 @@ void togglePin(byte pin, byte direction_pin) {
 
 //Resets all the pins
 void resetAll(){
+  boolean res=true;
+  for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
+      currentPeriod[p-FIRST_PIN] = 0;
+      if(currentState[p-FIRST_PIN] > 0)
+        res=false;
+  }
+  if(res==true) //we are already reset.
+    return;
+    
   lcd.clear();
   lcd.setCursor(2, 1);
   lcd.print("Resetting...");
   lcd.setCursor(4, 0);
   lcd.print("Gigawipf");
-  for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
-      currentPeriod[p-FIRST_PIN] = 0;
-  }
+  
   for (byte s=0;s<80;s++){ // For max drive's position
       for (byte p=FIRST_PIN;p<=PIN_MAX;p+=2){
         if(currentState[p-FIRST_PIN]<=0) //Don't run the head into end stops
