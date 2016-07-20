@@ -195,7 +195,7 @@ void resetAll(){
   lcd.setCursor(4, 0);
   lcd.print("Gigawipf");
   
-  for (byte s=0;s<80;s++){ // For max drive's position
+  for (byte s=0;s<80;s++){
     for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
       if(currentState[p-PIN_MIN] == 0) //Don't run the head into end stops
 	      continue;
@@ -205,7 +205,8 @@ void resetAll(){
     }
     delay(4);
   }
-  
+
+  //Prepare to go forward.
   for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
     currentState[p-PIN_MIN] = 0;
     digitalWrite(p+1,LOW);
