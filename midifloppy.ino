@@ -52,6 +52,8 @@ Odd value on pin+1 is the current tick.*/
 unsigned int currentPeriod[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
+//allow note events for different notes to override the current note if one is already playing. (switched by mono/poly mode on any channel)
+bool noteOffOverride = true;
 
 //Setup pins (Even-odd pairs for step control and direction)
 void setup() {
@@ -104,28 +106,33 @@ void loop() {
   
   if (rx.header == 0) return; // if no midi packet do nothing
 
-  byte chan = (rx.byte1 & 0x0f)*2;
+  byte chan = (rx.byte1 & 0x0f);
+  byte pin = chan*2;
   
   //Note off if event matches our current note
-  if((rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)) && currentState[chan+1] == rx.byte2) {
-    currentPeriod[chan] = 0;
-    currentState[chan+1] = 0;
-    digitalWrite(chan+PIN_MIN,LOW);
-    pinState[chan]=LOW;
+  if((rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)) && (currentState[pin+1] == rx.byte2 || noteOffOverride)) {
+    currentPeriod[pin] = 0;
+    currentState[pin+1] = 0;
+    digitalWrite(pin+PIN_MIN,LOW);
+    pinState[pin]=LOW;
       
-  } else if(rx.header == 0x09) { //note on
-  currentPeriod[chan] = noteToPeriod[rx.byte2]; //convert note number to period
-  currentState[chan+1] = rx.byte2; //save note
+  } else if(rx.header == 0x09 && (currentPeriod[pin] == 0 || noteOffOverride)) { //note on
+  currentPeriod[pin] = noteToPeriod[rx.byte2]; //convert note number to period
+  currentState[pin+1] = rx.byte2; //save note
   
-  } else if(rx.header==0x0B) { //special
+  } else if(rx.header==0x0B) { //control change
     if(rx.byte1 == 0xB0 && (rx.byte2==0x78 || rx.byte2==0x7B)){
       resetAll();
-    }      
+    }else if(rx.byte2 == 0x7F){ //poly mode on (disable note overrides)
+        noteOffOverride = false;
+      }else if(rx.byte2 == 0x7E){ //poly mode off (play first incoming note)
+        noteOffOverride = true;
+      }
   } else if(rx.header==0x0E) { //pitch Bend
     int pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
     if(pb!=0){
       float pbMult = pow(2.0, pb / 8192.0);
-      currentPeriod[chan] = noteToPeriod[currentState[chan+1]] / pbMult;
+      currentPeriod[pin] = noteToPeriod[currentState[pin+1]] / pbMult;
     }
   }
 }
