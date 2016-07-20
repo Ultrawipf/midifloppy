@@ -105,8 +105,9 @@ void loop() {
   if (rx.header == 0) return; // if no midi packet do nothing
 
   byte chan = (rx.byte1 & 0x0f)*2;
-
-  if(rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)) { //note off
+  
+  //Note off if event matches our current note
+  if((rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)) && currentState[chan+1] == rx.byte2) {
     currentPeriod[chan] = 0;
     currentState[chan+1] = 0;
     digitalWrite(chan+PIN_MIN,LOW);
@@ -114,7 +115,8 @@ void loop() {
       
   } else if(rx.header == 0x09) { //note on
   currentPeriod[chan] = noteToPeriod[rx.byte2]; //convert note number to period
-  currentState[chan+1] = rx.byte2;
+  currentState[chan+1] = rx.byte2; //save note
+  
   } else if(rx.header==0x0B) { //special
     if(rx.byte1 == 0xB0 && (rx.byte2==0x78 || rx.byte2==0x7B)){
       resetAll();
@@ -122,7 +124,7 @@ void loop() {
   } else if(rx.header==0x0E) { //pitch Bend
     int pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
     if(pb!=0){
-      float pbMult = pow(2.0, pb / ((chan == 28) ? 4096.0 : 8192.0)); //channel 15 is a hdd for me and can go higher.
+      float pbMult = pow(2.0, pb / 8192.0);
       currentPeriod[chan] = noteToPeriod[currentState[chan+1]] / pbMult;
     }
   }
