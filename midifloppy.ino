@@ -4,8 +4,10 @@
 
 #define RESOLUTION 30 //Microsecond resolution for notes
 
+//lcd settings. If you have no lcd remove all lcd functions
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 byte lcdNumCols = 16;
+
 //First pin being used for floppies, and the last pin.  Used for looping over all pins.
 const byte PIN_MIN = 22;
 const byte PIN_MAX = 53;
@@ -33,8 +35,8 @@ half a position (use 158 and 98).
 const byte MAX_POSITION[] = {
   158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,0,0,0,0};
   
-//Array to track the current position of each floppy head.  (Only even indexes (i.e. 2,4,6...) are used)
-//The second value between step pin is the current note number for pitch bends.
+/*Array to track the current position of each floppy head. 
+The odd values between step pin are the current note number used for effects.*/
 byte currentState[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
@@ -44,37 +46,41 @@ track direction-pins.  LOW = forward, HIGH=reverse
 int pinState[] = {
   LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW};
   
-//Current period assigned to each pin.  0 = off.  Each period is of the length specified by the RESOLUTION
-//variable above.  i.e. A period of 10 is (RESOLUTION x 10) microseconds long.
-//Second value on the "dir" pin is the current tick.
+/*Current period assigned to each pin.  0 = off.  Each period is of the length specified by the RESOLUTION
+variable above.  i.e. A period of 10 is (RESOLUTION x 10) microseconds long.
+Odd value on pin+1 is the current tick.*/
 unsigned int currentPeriod[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 
 //Setup pins (Even-odd pairs for step control and direction)
 void setup() {
-  
-  for(int i=0;i<127;i++){
-    noteToPeriod[i]=noteToPeriod[i] / (2*RESOLUTION); //for performance precalculate the periods. should probably be done by the preprocessor...
-  }
-  
+  //for performance precalculate the periods. could be done by preprocessor...
+  for(int i=0;i<127;i++)
+    noteToPeriod[i]=noteToPeriod[i] / (2*RESOLUTION); 
+
+  //lcd init
   lcd.begin(2, lcdNumCols);
   lcd.clear();
-  for(int i=22;i<=53;i++){
+
+  //set all used pins as output
+  for(int i=PIN_MIN;i<=PIN_MAX;i++)
     pinMode(i, OUTPUT);
-  }
+
   //Serial.begin(19200);
   
   Timer1.attachInterrupt(tick); // Attach the tick function
   Timer1.start(RESOLUTION); // Set up a timer at the defined resolution
-  
+
+  //Display welcome Message
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print("Starting up");
   lcd.setCursor(4, 0);
   lcd.print("Gigawipf");
-  
-  for (byte s=0;s<80;s++){ // For max drive's position
+
+  //Run all heads forward once.
+  for (byte s=0;s<80;s++){ //Assuming we have 80 tracks on every drive.
     for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
       digitalWrite(p+1,LOW); // Go
       digitalWrite(p,HIGH);
@@ -82,8 +88,9 @@ void setup() {
     }
     delay(5);
   }
+  //Prepare for reset test.
   for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
-    currentState[p-PIN_MIN] = 158; // We're reset.
+    currentState[p-PIN_MIN] = 158;
     digitalWrite(p+1,HIGH);
     pinState[p+1-PIN_MIN] = HIGH;
   }
@@ -91,7 +98,7 @@ void setup() {
   resetAll(); 
 }
 
-
+//Working loop for midi messages
 void loop() {
   midiEventPacket_t rx = MidiUSB.read(); //read midi packet
   
@@ -113,7 +120,7 @@ void loop() {
       resetAll();
     }      
   } else if(rx.header==0x0E) { //pitch Bend
-    long pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
+    int pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
     if(pb!=0){
       float pbMult = pow(2.0, pb / ((chan == 28) ? 4096.0 : 8192.0)); //channel 15 is a hdd for me and can go higher.
       currentPeriod[chan] = noteToPeriod[currentState[chan+1]] / pbMult;
@@ -128,7 +135,7 @@ Called by the timer inturrupt at the specified resolution.
 void tick()
 {
   /* 
-  If there is a period set for control pin 2, count the number of
+  If there is a period set, count the number of
   ticks that pass, and toggle the pin if the current period is reached.
   */
   for(int i=0;i<=30;i+=2) {
@@ -175,12 +182,13 @@ void resetAll(){
   bool res=true;
   for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
       currentPeriod[p-PIN_MIN] = 0;
-      if(currentState[p-PIN_MIN]) // if currentState is set it cannot be reset
+      if(currentState[p-PIN_MIN]) //if any drive is not at zero to continue resetting
         res=false;
   }
-  if(res==true) //we are already reset.
+  if(res==true) //all drives are already reset
     return;
-    
+  
+  //Display reset message
   lcd.clear();
   lcd.setCursor(2, 1);
   lcd.print("Resetting...");
@@ -195,7 +203,7 @@ void resetAll(){
       digitalWrite(p,HIGH);
       digitalWrite(p,LOW);
     }
-    delay(5);
+    delay(4);
   }
   
   for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
@@ -204,6 +212,8 @@ void resetAll(){
     digitalWrite(p,LOW);
     pinState[p+1 - PIN_MIN] = LOW;
   }
+
+  //Display idle message
   lcd.clear();
   lcd.setCursor(2, 1);
   lcd.print("Floppy Music");
