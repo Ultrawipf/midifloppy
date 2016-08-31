@@ -2,7 +2,7 @@
 #include <LiquidCrystal.h>
 #include <MIDIUSB.h>
 
-#define RESOLUTION 30 //Microsecond resolution for notes
+#define RESOLUTION 20 //Microsecond resolution for notes
 
 //lcd settings. If you have no lcd remove all lcd functions
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
@@ -40,6 +40,9 @@ The odd values between step pin are the current note number used for effects.*/
 byte currentState[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
+//Buffer if two notes overlap to save the next note. channel indices.
+byte noteBuffer[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
 /*Array to keep track of state of each pin.  Even indexes track the control-pins for toggle purposes.  Odd indexes
 track direction-pins.  LOW = forward, HIGH=reverse
 */
@@ -52,8 +55,6 @@ Odd value on pin+1 is the current tick.*/
 unsigned int currentPeriod[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
-//allow note events for different notes to override the current note if one is already playing. (switched by mono/poly mode on any channel)
-bool noteOffOverride = true;
 
 //Setup pins (Even-odd pairs for step control and direction)
 void setup() {
@@ -108,31 +109,40 @@ void loop() {
 
   byte chan = (rx.byte1 & 0x0f);
   byte pin = chan*2;
+  byte note = rx.byte2;
   
-  //Note off if event matches our current note
-  if((rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00)) && (currentState[pin+1] == rx.byte2 || noteOffOverride)) {
-    currentPeriod[pin] = 0;
-    currentState[pin+1] = 0;
-    digitalWrite(pin+PIN_MIN,LOW);
-    pinState[pin]=LOW;
+  //Note off
+  if((rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00))) {
+    if(noteBuffer[chan]==note)
+      noteBuffer[chan]=0;
+    if(currentState[pin+1] == note){
+      currentPeriod[pin] = 0;
+      currentState[pin+1] = 0;
+      digitalWrite(pin+PIN_MIN,LOW);
+      pinState[pin]=LOW;
+      if(noteBuffer[chan]>0){ //play buffered note
+        currentPeriod[pin] = noteToPeriod[noteBuffer[chan]]; //convert note number to period
+        currentState[pin+1] = noteBuffer[chan]; //save note
+        noteBuffer[chan]=0;
+      }
+    }
       
-  } else if(rx.header == 0x09 && (currentPeriod[pin] == 0 || noteOffOverride)) { //note on
-  currentPeriod[pin] = noteToPeriod[rx.byte2]; //convert note number to period
-  currentState[pin+1] = rx.byte2; //save note
+  }else if(rx.header == 0x09) { //note on
+    if(currentState[pin+1]>0){
+      noteBuffer[chan]=currentState[pin+1];
+    }
+    currentPeriod[pin] = noteToPeriod[note]; //convert note number to period
+    currentState[pin+1] = note; //save note
   
   } else if(rx.header==0x0B) { //control change
     if(rx.byte1 == 0xB0 && (rx.byte2==0x78 || rx.byte2==0x7B)){
       resetAll();
-    }else if(rx.byte2 == 0x7F){ //poly mode on (disable note overrides)
-        noteOffOverride = false;
-      }else if(rx.byte2 == 0x7E){ //poly mode off (play first incoming note)
-        noteOffOverride = true;
-      }
+    }
   } else if(rx.header==0x0E) { //pitch Bend
     int pb = ((rx.byte3 & 0x7f) << 7) + (rx.byte2 & 0x7f) - 8192;
     if(pb!=0){
       float pbMult = pow(2.0, pb / 8192.0);
-      currentPeriod[pin] = noteToPeriod[currentState[pin+1]] / pbMult;
+      currentPeriod[pin] = (float)noteToPeriod[currentState[pin+1]] / pbMult;
     }
   }
 }
@@ -189,8 +199,10 @@ void togglePin(byte pin, byte direction_pin) {
 //Resets all the pins
 void resetAll(){
   bool res=true;
+  int chan=0;
   for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
       currentPeriod[p-PIN_MIN] = 0;
+      noteBuffer[chan++]=0;
       if(currentState[p-PIN_MIN]) //if any drive is not at zero to continue resetting
         res=false;
   }
@@ -218,6 +230,7 @@ void resetAll(){
   //Prepare to go forward.
   for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
     currentState[p-PIN_MIN] = 0;
+    currentState[1 + p-PIN_MIN] = 0;
     digitalWrite(p+1,LOW);
     digitalWrite(p,LOW);
     pinState[p+1 - PIN_MIN] = LOW;
