@@ -4,7 +4,7 @@
 
 #define RESOLUTION 20 //Microsecond resolution for notes
 
-//lcd settings. If you have no lcd remove all lcd functions
+//lcd settings. If you have no lcd remove all lcd related functions
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 byte lcdNumCols = 16;
 
@@ -34,8 +34,8 @@ half a position (use 158 and 98).
 */
 const byte MAX_POSITION[] = {
   158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,158,0,0,0,0,0};
-  
-/*Array to track the current position of each floppy head. 
+
+/*Array to track the current position of each floppy head.
 The odd values between step pin are the current note number used for effects.*/
 byte currentState[] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -48,7 +48,7 @@ track direction-pins.  LOW = forward, HIGH=reverse
 */
 int pinState[] = {
   LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW,LOW};
-  
+
 /*Current period assigned to each pin.  0 = off.  Each period is of the length specified by the RESOLUTION
 variable above.  i.e. A period of 10 is (RESOLUTION x 10) microseconds long.
 Odd value on pin+1 is the current tick.*/
@@ -60,7 +60,7 @@ unsigned int currentPeriod[] = {
 void setup() {
   //for performance precalculate the periods. could be done by preprocessor...
   for(int i=0;i<127;i++)
-    noteToPeriod[i]=noteToPeriod[i] / (2*RESOLUTION); 
+    noteToPeriod[i]=noteToPeriod[i] / (2*RESOLUTION);
 
   //lcd init
   lcd.begin(2, lcdNumCols);
@@ -70,8 +70,6 @@ void setup() {
   for(int i=PIN_MIN;i<=PIN_MAX;i++)
     pinMode(i, OUTPUT);
 
-  //Serial.begin(19200);
-  
   Timer1.attachInterrupt(tick); // Attach the tick function
   Timer1.start(RESOLUTION); // Set up a timer at the defined resolution
 
@@ -98,19 +96,19 @@ void setup() {
     pinState[p+1-PIN_MIN] = HIGH;
   }
   delay(500);
-  resetAll(); 
+  resetAll();
 }
 
 //Working loop for midi messages
 void loop() {
   midiEventPacket_t rx = MidiUSB.read(); //read midi packet
-  
+
   if (rx.header == 0) return; // if no midi packet do nothing
 
   byte chan = (rx.byte1 & 0x0f);
   byte pin = chan*2;
   byte note = rx.byte2;
-  
+
   //Note off
   if((rx.header == 0x08 || (rx.header == 0x09 && rx.byte3 == 0x00) || (rx.byte2 == 0xB0 && rx.byte3 == 0x00))) {
     if(noteBuffer[chan]==note)
@@ -126,14 +124,14 @@ void loop() {
         noteBuffer[chan]=0;
       }
     }
-      
+
   }else if(rx.header == 0x09) { //note on
     if(currentState[pin+1]>0){
       noteBuffer[chan]=currentState[pin+1];
     }
     currentPeriod[pin] = noteToPeriod[note]; //convert note number to period
     currentState[pin+1] = note; //save note
-  
+
   } else if(rx.header==0x0B) { //control change
     if(rx.byte1 == 0xB0 && (rx.byte2==0x78 || rx.byte2==0x7B)){
       resetAll();
@@ -153,7 +151,7 @@ Called by the timer inturrupt at the specified resolution.
 */
 void tick()
 {
-  /* 
+  /*
   If there is a period set, count the number of
   ticks that pass, and toggle the pin if the current period is reached.
   */
@@ -169,27 +167,27 @@ void tick()
 }
 
 void togglePin(byte pin, byte direction_pin) {
- 
+
   //Switch directions if end has been reached
   if(MAX_POSITION[pin]){
     if (currentState[pin] >= MAX_POSITION[pin]) {
       pinState[direction_pin] = HIGH;
       digitalWrite(direction_pin+PIN_MIN,HIGH);
-    } 
+    }
     else if (currentState[pin] == 0) {
       pinState[direction_pin] = LOW;
       digitalWrite(direction_pin+PIN_MIN,LOW);
     }
-    
+
     //Update currentState
     if (pinState[direction_pin] == HIGH) {
       currentState[pin]--;
-    } 
+    }
     else {
       currentState[pin]++;
     }
   }
-  
+
   //Pulse the control pin
   digitalWrite(pin+PIN_MIN,pinState[pin]);
   pinState[pin] = ~pinState[pin];
@@ -208,14 +206,14 @@ void resetAll(){
   }
   if(res==true) //all drives are already reset
     return;
-  
+
   //Display reset message
   lcd.clear();
   lcd.setCursor(2, 1);
   lcd.print("Resetting...");
   lcd.setCursor(4, 0);
   lcd.print("Gigawipf");
-  
+
   for (byte s=0;s<80;s++){
     for (byte p=PIN_MIN;p<=PIN_MAX;p+=2){
       if(currentState[p-PIN_MIN] == 0) //Don't run the head into end stops
@@ -243,6 +241,3 @@ void resetAll(){
   lcd.setCursor(4, 0);
   lcd.print("Gigawipf");
 }
-
-
-
